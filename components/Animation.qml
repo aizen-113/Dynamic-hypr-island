@@ -40,5 +40,5 @@ QtObject {
     readonly property real hoverScale: 1.03
 
     // Top offset
-    readonly property int topMargin: 24
+    readonly property int topMargin: 19
 }

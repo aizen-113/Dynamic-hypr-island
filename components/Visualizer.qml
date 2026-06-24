@@ -1,52 +1,55 @@
 import QtQuick
+import Quickshell
+import Quickshell.Io
 
 Item {
     id: root
 
-    property bool hovered: false
+    property var values: []
 
-    implicitWidth: hovered ? 220 : 90
-    implicitHeight: hovered ? 40 : 24
+    implicitWidth: 90
+    implicitHeight: 28
 
-    Row {
-        anchors.centerIn: parent
-        spacing: 3
+    Process {
+        id: cava
 
-        Repeater {
-            model: 9
+        running: true
 
-            Rectangle {
-                width: 4
+        command: [
+            "cava",
+            "-p",
+            "/home/aizen/caelestia-mods/island/cava.conf"
+        ]
 
-                property real targetHeight: 8
-
-                height: targetHeight
-
-                radius: width
-
-                color: "white"
-
-                anchors.verticalCenter: parent.verticalCenter
-
-                Behavior on height {
-                    NumberAnimation {
-                        duration: 180
-                        easing.type: Easing.OutQuad
-                    }
-                }
+        stdout: SplitParser {
+            onRead: data => {
+                root.values = data.trim().split(";")
             }
         }
     }
 
-    Timer {
-        running: true
-        repeat: true
-        interval: 120
+    Row {
+        anchors.centerIn: parent
+        spacing: 2
 
-        onTriggered: {
-            for (let i = 0; i < bars.children.length; i++) {
-                bars.children[i].targetHeight =
-                    6 + Math.random() * (root.hovered ? 26 : 12)
+        Repeater {
+            model: Math.min(root.values.length, 20)
+
+            Rectangle {
+                required property int index
+
+                width: 3
+
+                height: {
+                    const v = parseInt(root.values[index]) || 0
+                    return Math.max(2, v / 3)
+                }
+
+                radius: width / 2
+
+                color: "white"
+
+                anchors.verticalCenter: parent.verticalCenter
             }
         }
     }

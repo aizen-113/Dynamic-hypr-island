@@ -2,6 +2,8 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import "./components"
+import Quickshell.Io
+
 
 PanelWindow {
     id: root
@@ -20,6 +22,10 @@ PanelWindow {
         id: anim
     }
 
+    MusicInfo {
+        id: music
+    }
+
     Rectangle {
         id: island
 
@@ -30,6 +36,8 @@ PanelWindow {
         property bool hovered: false
         property real cpu: 0
         property real ram: 0
+        property bool musicPlaying: false
+        property string coverPath: "/tmp/cover.jpg"
 
         width: hovered ? 420 : 180
         height: hovered ? 56 : 40
@@ -72,12 +80,68 @@ PanelWindow {
                 island.ram = Math.random() * 100
             }
         }
+        
+        Timer {
+            interval: 1000
+            running: true
+            repeat: true
+
+            onTriggered: {
+                musicCheck.running = true
+            }
+        }
+
+        Timer {
+             interval: 3000
+             running: true
+             repeat: true
+
+             onTriggered: {
+                 console.log("updating cover")
+                 coverExtractor.running = false
+                 coverExtractor.running = true
+             }
+        }
+
+        Process {
+            id: musicCheck
+
+            command: [
+                "sh",
+                "-c",
+                "mpc status | grep '\\[playing\\]'"
+            ]
+
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    island.musicPlaying = text.length > 0
+                }
+            }
+        }
+
+        Process {
+            id: coverExtractor
+
+            command: [
+                "sh",
+                "-c",
+                "FILE=$(mpc --format '%file%' current | head -n1) && mpc readpicture \"$FILE\" > /tmp/cover.jpg"
+            ]
+
+            running: true
+
+            stdout: SplitParser {}
+        }
+ 
+
+      
+
 
         // IDLE MODE
         Row {
             id: idleRow
 
-            visible: !island.hovered
+            visible: !island.hovered && !island.musicPlaying
 
             anchors.centerIn: parent
 
@@ -85,11 +149,11 @@ PanelWindow {
 
             Text {
                 text: Qt.formatDateTime(new Date(), "HH:mm")
-
                 color: "white"
                 font.pixelSize: 18
                 font.bold: true
             }
+
             Image {
                 source: "assets/rikka.png"
 
@@ -103,81 +167,177 @@ PanelWindow {
             }
         }
 
+        Visualizer {
+            anchors.centerIn: parent
+            visible: !island.hovered && island.musicPlaying
+        }
+
         // HOVER MODE
         Row {
             id: hoverRow
 
             visible: island.hovered
-
             anchors.centerIn: parent
 
-            spacing: 14
+            // ===== MUSIC HOVER =====
+            Row {
+                visible: island.musicPlaying
 
-            Text {
-                text: Qt.formatDateTime(new Date(), "HH:mm")
+                spacing: 12
 
-                color: "white"
-                font.pixelSize: 24
-                font.bold: true
-            }
+                Rectangle {
+                    width: 42
+                    height: 42
+                    radius: 8
+                    clip: true
 
-            Image {
-                source: "assets/rikka.png"
+                    Image {
+                        id: coverImage
 
-                height: 34
-                width: height * (sourceSize.width / sourceSize.height)
+                        anchors.fill: parent
 
-                fillMode: Image.PreserveAspectFit
-                smooth: true
-                mipmap: true
-                asynchronous: true
-            }
+                        source: "file:///tmp/cover.jpg?" + Date.now()
 
-            Rectangle {
-                width: 1
-                height: 26
-                color: "#444444"
+                        cache: false
 
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Column {
-                spacing: 0
-
-                Text {
-                    text: Qt.formatDateTime(new Date(), "ddd")
-                    color: "#dddddd"
-                    font.pixelSize: 14
+                        fillMode: Image.PreserveAspectCrop
+                        smooth: true
+                        mipmap: true
+                    }
                 }
 
-                Text {
-                    text: Qt.formatDateTime(new Date(), "dd MMM")
-                    color: "#999999"
-                    font.pixelSize: 12
+                Item {
+                    width: 90
+                    height: 30
+
+                    Visualizer {
+                        anchors.centerIn: parent
+                    }
+                }
+
+                Rectangle {
+                    width: 1
+                    height: 28
+                    color: "#444444"
+                }
+
+                Column {
+                    width: 180
+                    spacing: 2
+
+                    Text {
+                        text: music.title
+
+                        color: "white"
+                        font.pixelSize: 14
+                        font.bold: true
+
+                        width: parent.width
+                        elide: Text.ElideRight
+                    }
+
+                    Text {
+                        text: music.artist
+
+                        color: "#aaaaaa"
+                        font.pixelSize: 12
+
+                        width: parent.width
+                        elide: Text.ElideRight
+                    }
                 }
             }
 
-            Rectangle {
-                width: 1
-                height: 26
-                color: "#444444"
+            // ===== NORMAL HOVER =====
+            Row {
+                visible: !island.musicPlaying
 
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Column {
-                spacing: 0
+                spacing: 14
 
                 Text {
-                    text: "CPU " + island.cpu.toFixed(0) + "%"
-                    color: "#bbbbbb"
-                    font.pixelSize: 12
+                    text: Qt.formatDateTime(new Date(), "HH:mm")
+
+                    color: "white"
+                    font.pixelSize: 24
+                    font.bold: true
                 }
 
-                Text {
-                    text: "RAM " + island.ram.toFixed(0) + "%"
-                    color: "#bbbbbb"
-                    font.pixelSize: 12
+                Image {
+                    source: "assets/rikka.png"
+
+                    height: 34
+                    width: height * (sourceSize.width / sourceSize.height)
+
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    mipmap: true
+                    asynchronous: true
+                }
+
+                Rectangle {
+                    width: 1
+                    height: 26
+                    color: "#444444"
+                }
+
+                Column {
+                    spacing: 0
+
+                    Text {
+                        text: Qt.formatDateTime(new Date(), "ddd")
+                        color: "#dddddd"
+                        font.pixelSize: 14
+                    }
+
+                    Text {
+                        text: Qt.formatDateTime(new Date(), "dd MMM")
+                        color: "#999999"
+                        font.pixelSize: 12
+                    }
+                }
+
+                Rectangle {
+                    width: 1
+                    height: 26
+                    color: "#444444"
+                }
+
+                Column {
+                    spacing: 2
+
+                    Row {
+                        spacing: 4
+
+                        Text {
+                            text: "CPU"
+                            color: "white"
+                            font.bold: true
+                            font.pixelSize: 12
+                        }
+
+                        Text {
+                            text: island.cpu.toFixed(0) + "%"
+                            color: "#bbbbbb"
+                            font.pixelSize: 12
+                        }
+                    }
+
+                    Row {
+                        spacing: 4
+
+                        Text {
+                            text: "RAM"
+                            color: "white"
+                            font.bold: true
+                            font.pixelSize: 12
+                        }
+
+                        Text {
+                            text: island.ram.toFixed(0) + "%"
+                            color: "#bbbbbb"
+                            font.pixelSize: 12
+                        }
+                    }
                 }
             }
         }
