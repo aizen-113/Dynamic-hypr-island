@@ -15,7 +15,7 @@ PanelWindow {
 
     anchors.top: true
 
-    implicitWidth: 1920
+    implicitWidth: 480
     implicitHeight: 80
 
     Animation {
@@ -37,7 +37,8 @@ PanelWindow {
         property real cpu: 0
         property real ram: 0
         property bool musicPlaying: false
-        property string coverPath: "/tmp/cover.jpg"
+        property int coverVersion: 0
+        property string coverPath: "/tmp/cover.png"
 
         width: hovered ? 420 : 180
         height: hovered ? 56 : 40
@@ -81,28 +82,6 @@ PanelWindow {
             }
         }
         
-        Timer {
-            interval: 1000
-            running: true
-            repeat: true
-
-            onTriggered: {
-                musicCheck.running = true
-            }
-        }
-
-        Timer {
-             interval: 3000
-             running: true
-             repeat: true
-
-             onTriggered: {
-                 console.log("updating cover")
-                 coverExtractor.running = false
-                 coverExtractor.running = true
-             }
-        }
-
         Process {
             id: musicCheck
 
@@ -119,19 +98,68 @@ PanelWindow {
             }
         }
 
+        Timer {
+            interval: 1000
+            running: true
+            repeat: true
+
+            onTriggered: {
+                musicCheck.running = true
+            }
+        }
+
+
+        Timer {
+             id: updateCover
+
+             interval: 150
+             repeat: false
+
+             onTriggered: {
+                 island.coverVersion++
+             }
+        }
+
+        Timer {
+            id: coverDelay
+            interval: 400
+            repeat: false
+        
+            onTriggered: {
+                coverExtractor.running = true
+                
+                updateCover.restart()
+            }
+        }
+
         Process {
             id: coverExtractor
 
             command: [
                 "sh",
                 "-c",
-                "FILE=$(mpc --format '%file%' current | head -n1) && mpc readpicture \"$FILE\" > /tmp/cover.jpg"
+                "FILE=$(mpc --format '%file%' current | head -n1) && mpc readpicture \"$FILE\" > /tmp/cover.tmp && mv /tmp/cover.tmp /tmp/cover.png"
             ]
 
             running: true
 
             stdout: SplitParser {}
+
         }
+
+        Process {
+            id: mpdWatcher
+
+            command: ["mpc", "idleloop", "player"]
+            running: true
+
+            stdout: SplitParser {
+                onRead: data => {
+                    coverDelay.restart()
+                }
+            }
+        }
+
  
 
       
@@ -184,6 +212,7 @@ PanelWindow {
                 visible: island.musicPlaying
 
                 spacing: 12
+                anchors.verticalCenter: parent.verticalCenter
 
                 Rectangle {
                     width: 42
@@ -195,10 +224,9 @@ PanelWindow {
                         id: coverImage
 
                         anchors.fill: parent
-
-                        source: "file:///tmp/cover.jpg?" + Date.now()
-
                         cache: false
+
+                        source: "file:///tmp/cover.png?" + island.coverVersion
 
                         fillMode: Image.PreserveAspectCrop
                         smooth: true

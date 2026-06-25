@@ -30,6 +30,7 @@ Item {
 
     Row {
         anchors.centerIn: parent
+        height: parent.height
         spacing: 2
 
         Repeater {
@@ -50,6 +51,7 @@ Item {
                 color: "white"
 
                 anchors.verticalCenter: parent.verticalCenter
+                transformOrigin: Item.Center
             }
         }
     }
