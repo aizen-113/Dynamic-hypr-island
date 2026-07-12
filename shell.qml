@@ -40,14 +40,19 @@ PanelWindow {
         property int coverVersion: 0
         property string coverPath: "/tmp/cover.png"
 
+        property real prevTotal: 0
+        property real prevIdle: 0
+
         width: hovered ? 420 : 180
         height: hovered ? 56 : 40
-
+        layer.enabled: true
         radius: height / 2
 
-        color: "#000000"
+        color: "#cc000000"
         border.width: 1
-        border.color: "#222222"
+        border.color: "#dd222222"
+       
+        z: -1
 
         Behavior on width {
             NumberAnimation {
@@ -71,17 +76,81 @@ PanelWindow {
             onExited: island.hovered = false
         }
 
+        onHoveredChanged: {
+            if (hovered) {
+                island.prevTotal = 0;
+                island.prevIdle = 0;
+                sysStatsProc.running = true;
+            }
+        }
+        
+        Process {
+            id: sysStatsProc
+
+            command: [
+                "sh",
+                "-c",
+                "cat /proc/stat | grep '^cpu ' && cat /proc/meminfo | grep -E 'MemTotal|MemAvailable'"
+            ]
+
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    let lines = text.trim().split("\n");
+                    if (lines.length >= 3) {
+                        // --- Parse CPU lines ---
+                        let cpuParts = lines[0].replace(/\s+/g, ' ').split(' ');
+                        let user = parseFloat(cpuParts[1]) || 0;
+                        let nice = parseFloat(cpuParts[2]) || 0;
+                        let system = parseFloat(cpuParts[3]) || 0;
+                        let idle = parseFloat(cpuParts[4]) || 0;
+                        let iowait = parseFloat(cpuParts[5]) || 0;
+                        let irq = parseFloat(cpuParts[6]) || 0;
+                        let softirq = parseFloat(cpuParts[7]) || 0;
+                        let steal = parseFloat(cpuParts[8]) || 0;
+
+                        let total = user + nice + system + idle + iowait + irq + softirq + steal;
+                        let idleTime = idle + iowait;
+
+                        if (island.prevTotal > 0) {
+                            let diffTotal = total - island.prevTotal;
+                            let diffIdle = idleTime - island.prevIdle;
+                            if (diffTotal > 0) {
+                                // Set island.cpu to actual usage percent!
+                                island.cpu = Math.max(0, Math.min(100, ((diffTotal - diffIdle) / diffTotal) * 100));
+                            }
+                        }
+                        island.prevTotal = total;
+                        island.prevIdle = idleTime;
+
+                        // --- Parse Memory lines ---
+                        let totalMem = 0;
+                        let availMem = 0;
+                        for (let i = 1; i < lines.length; i++) {
+                            if (lines[i].includes("MemTotal:")) {
+                                totalMem = parseFloat(lines[i].replace(/[^0-9]/g, '')) || 0;
+                            } else if (lines[i].includes("MemAvailable:")) {
+                                availMem = parseFloat(lines[i].replace(/[^0-9]/g, '')) || 0;
+                            }
+                        }
+                        if (totalMem > 0) {
+                            // Set island.ram to actual memory usage percent!
+                            island.ram = Math.max(0, Math.min(100, ((totalMem - availMem) / totalMem) * 100));
+                        }
+                    }
+                }
+            }
+        }
+
         Timer {
             interval: 1000
             running: island.hovered
             repeat: true
 
             onTriggered: {
-                island.cpu = Math.random() * 100
-                island.ram = Math.random() * 100
+                sysStatsProc.running = true;
             }
         }
-        
+
         Process {
             id: musicCheck
 
@@ -293,7 +362,7 @@ PanelWindow {
                 Image {
                     source: "assets/rikka.png"
 
-                    height: 34
+                    height: 38
                     width: height * (sourceSize.width / sourceSize.height)
 
                     fillMode: Image.PreserveAspectFit

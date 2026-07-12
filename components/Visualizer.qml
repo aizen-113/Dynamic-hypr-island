@@ -10,20 +10,40 @@ Item {
     implicitWidth: 90
     implicitHeight: 28
 
+
+    
+    property string cavaConfigPath: ""
+
+    
+    Component.onCompleted: {
+        let url = Qt.resolvedUrl("../cava.conf").toString();
+        root.cavaConfigPath = url.replace("file://", "");
+        console.log("[Dynamic Island] Resolved Cava Path: " + root.cavaConfigPath);
+        cava.running = true;
+    }
+
     Process {
         id: cava
 
-        running: true
+        running: false
 
         command: [
             "cava",
             "-p",
-            "/home/aizen/caelestia-mods/island/cava.conf"
+            root.cavaConfigPath
         ]
 
         stdout: SplitParser {
             onRead: data => {
                 root.values = data.trim().split(";")
+            }
+        }
+
+        stderr: StdioCollector {
+            onStreamFinished: {
+                if (text.length > 0) {
+                    console.log("[Dynamic Island] Cava Error: " + text.trim());
+                }
             }
         }
     }
