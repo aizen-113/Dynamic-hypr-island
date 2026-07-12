@@ -1,8 +1,11 @@
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
+import Quickshell.Hyprland
 import "./components"
 import Quickshell.Io
+import QtQuick.Window
+
 
 
 PanelWindow {
@@ -15,15 +18,32 @@ PanelWindow {
 
     anchors.top: true
 
-    implicitWidth: 480
-    implicitHeight: 80
+    WlrLayershell.keyboardFocus: island.expanded ? KeyboardFocus.OnDemand : KeyboardFocus.None
+    
 
-    Animation {
-        id: anim
+    implicitWidth: 460
+    implicitHeight: 160
+
+    // Dynamic click-through mask
+    mask: Region {
+        item: island
     }
 
+    // ------------------------------------------
+    // THE MUSIC DAEMON ENGINE (Model & Controller)
+    // ------------------------------------------
     MusicInfo {
-        id: music
+        id: musicDaemon
+    }
+
+    HyprlandFocusGrab {
+        id: focusGrab
+        windows: [ root ] // Tell it to watch this PanelWindow!
+
+        // When you click outside, Hyprland automatically clears the grab!
+        onCleared: {
+            island.expanded = false;
+        }
     }
 
     Rectangle {
@@ -31,410 +51,127 @@ PanelWindow {
 
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.topMargin: anim.topMargin
+        anchors.topMargin: 17
 
-        property bool hovered: false
-        property real cpu: 0
-        property real ram: 0
-        property bool musicPlaying: false
-        property int coverVersion: 0
-        property string coverPath: "/tmp/cover.png"
+        property bool expanded: false
+        
+        property bool musicPlaying: musicDaemon.mpdIsPlaying
+        property string expandMode: "stats"
 
-        property real prevTotal: 0
-        property real prevIdle: 0
+        width: expanded ? 380 : 180
+        height: expanded ? (expandMode === "music" ? 140 : 110) : 40
+        radius: 20
 
-        width: hovered ? 420 : 180
-        height: hovered ? 56 : 40
-        layer.enabled: true
-        radius: height / 2
+        clip: true
+        focus: true
 
-        color: "#cc000000"
+        color: expanded ? "#fc000000" : "#a6000000"
         border.width: 1
-        border.color: "#dd222222"
-       
-        z: -1
+        border.color: "#222222"
 
+        // Transitions
         Behavior on width {
-            NumberAnimation {
-                duration: 260
-                easing.type: Easing.OutCubic
-            }
+            NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
         }
-
         Behavior on height {
-            NumberAnimation {
-                duration: 260
-                easing.type: Easing.OutCubic
+            NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+        }
+
+        onExpandedChanged: {
+            if (expanded) {
+                focusGrab.active = true;
+            } else {
+                focusGrab.active = false;
+            }
+        }
+        
+        // COLLAPSED CLOCK
+        property string currentTime: Qt.formatDateTime(new Date(), "HH:mm")
+
+        Timer {
+            interval: 1000
+            running: true
+            repeat: true
+            onTriggered: {
+                island.currentTime = Qt.formatDateTime(new Date(), "HH:mm")
             }
         }
 
+        // MOUSE CLICK ROUTER
         MouseArea {
             anchors.fill: parent
-            hoverEnabled: true
+            acceptedButtons: Qt.LeftButton | Qt.RightButton // Handles Left & Right Click!
 
-            onEntered: island.hovered = true
-            onExited: island.hovered = false
-        }
-
-        onHoveredChanged: {
-            if (hovered) {
-                island.prevTotal = 0;
-                island.prevIdle = 0;
-                sysStatsProc.running = true;
-            }
-        }
-        
-        Process {
-            id: sysStatsProc
-
-            command: [
-                "sh",
-                "-c",
-                "cat /proc/stat | grep '^cpu ' && cat /proc/meminfo | grep -E 'MemTotal|MemAvailable'"
-            ]
-
-            stdout: StdioCollector {
-                onStreamFinished: {
-                    let lines = text.trim().split("\n");
-                    if (lines.length >= 3) {
-                        // --- Parse CPU lines ---
-                        let cpuParts = lines[0].replace(/\s+/g, ' ').split(' ');
-                        let user = parseFloat(cpuParts[1]) || 0;
-                        let nice = parseFloat(cpuParts[2]) || 0;
-                        let system = parseFloat(cpuParts[3]) || 0;
-                        let idle = parseFloat(cpuParts[4]) || 0;
-                        let iowait = parseFloat(cpuParts[5]) || 0;
-                        let irq = parseFloat(cpuParts[6]) || 0;
-                        let softirq = parseFloat(cpuParts[7]) || 0;
-                        let steal = parseFloat(cpuParts[8]) || 0;
-
-                        let total = user + nice + system + idle + iowait + irq + softirq + steal;
-                        let idleTime = idle + iowait;
-
-                        if (island.prevTotal > 0) {
-                            let diffTotal = total - island.prevTotal;
-                            let diffIdle = idleTime - island.prevIdle;
-                            if (diffTotal > 0) {
-                                // Set island.cpu to actual usage percent!
-                                island.cpu = Math.max(0, Math.min(100, ((diffTotal - diffIdle) / diffTotal) * 100));
-                            }
-                        }
-                        island.prevTotal = total;
-                        island.prevIdle = idleTime;
-
-                        // --- Parse Memory lines ---
-                        let totalMem = 0;
-                        let availMem = 0;
-                        for (let i = 1; i < lines.length; i++) {
-                            if (lines[i].includes("MemTotal:")) {
-                                totalMem = parseFloat(lines[i].replace(/[^0-9]/g, '')) || 0;
-                            } else if (lines[i].includes("MemAvailable:")) {
-                                availMem = parseFloat(lines[i].replace(/[^0-9]/g, '')) || 0;
-                            }
-                        }
-                        if (totalMem > 0) {
-                            // Set island.ram to actual memory usage percent!
-                            island.ram = Math.max(0, Math.min(100, ((totalMem - availMem) / totalMem) * 100));
-                        }
-                    }
+            onClicked: function(mouse) {
+                // 1. Right Click opens/toggles Music Mode
+                if (mouse.button === Qt.RightButton) {
+                    island.expandMode = "music";
+                    island.expanded = !island.expanded;
+                } 
+                // 2. Left Click opens/toggles Stats Mode
+                else if (mouse.button === Qt.LeftButton) {
+                    island.expandMode = "stats";
+                    island.expanded = !island.expanded;
                 }
             }
         }
 
-        Timer {
-            interval: 1000
-            running: island.hovered
-            repeat: true
+        // ==========================================
+        // COLLAPSED MODES
+        // ==========================================
 
-            onTriggered: {
-                sysStatsProc.running = true;
-            }
-        }
-
-        Process {
-            id: musicCheck
-
-            command: [
-                "sh",
-                "-c",
-                "mpc status | grep '\\[playing\\]'"
-            ]
-
-            stdout: StdioCollector {
-                onStreamFinished: {
-                    island.musicPlaying = text.length > 0
-                }
-            }
-        }
-
-        Timer {
-            interval: 1000
-            running: true
-            repeat: true
-
-            onTriggered: {
-                musicCheck.running = true
-            }
-        }
-
-
-        Timer {
-             id: updateCover
-
-             interval: 150
-             repeat: false
-
-             onTriggered: {
-                 island.coverVersion++
-             }
-        }
-
-        Timer {
-            id: coverDelay
-            interval: 400
-            repeat: false
-        
-            onTriggered: {
-                coverExtractor.running = true
-                
-                updateCover.restart()
-            }
-        }
-
-        Process {
-            id: coverExtractor
-
-            command: [
-                "sh",
-                "-c",
-                "FILE=$(mpc --format '%file%' current | head -n1) && mpc readpicture \"$FILE\" > /tmp/cover.tmp && mv /tmp/cover.tmp /tmp/cover.png"
-            ]
-
-            running: true
-
-            stdout: SplitParser {}
-
-        }
-
-        Process {
-            id: mpdWatcher
-
-            command: ["mpc", "idleloop", "player"]
-            running: true
-
-            stdout: SplitParser {
-                onRead: data => {
-                    coverDelay.restart()
-                }
-            }
-        }
-
- 
-
-      
-
-
-        // IDLE MODE
+        // Idle clock
         Row {
             id: idleRow
-
-            visible: !island.hovered && !island.musicPlaying
-
+            visible: !island.expanded && !island.musicPlaying
             anchors.centerIn: parent
-
-            spacing: 10
 
             Text {
-                text: Qt.formatDateTime(new Date(), "HH:mm")
+                text: island.currentTime
                 color: "white"
-                font.pixelSize: 18
+                font.pixelSize: 15
                 font.bold: true
             }
-
-            Image {
-                source: "assets/rikka.png"
-
-                height: 26
-                width: height * (sourceSize.width / sourceSize.height)
-
-                fillMode: Image.PreserveAspectFit
-                smooth: true
-                mipmap: true
-                asynchronous: true
-            }
         }
 
+        // Collapsed mini visualizer
         Visualizer {
             anchors.centerIn: parent
-            visible: !island.hovered && island.musicPlaying
+            visible: !island.expanded && island.musicPlaying
         }
 
-        // HOVER MODE
-        Row {
-            id: hoverRow
+        // ==========================================
+        // DYNAMIC EXPANDED COMPONENTS
+        // ==========================================
 
-            visible: island.hovered
+        Expanded {
+            id: expandedView
             anchors.centerIn: parent
 
-            // ===== MUSIC HOVER =====
-            Row {
-                visible: island.musicPlaying
-
-                spacing: 12
-                anchors.verticalCenter: parent.verticalCenter
-
-                Rectangle {
-                    width: 42
-                    height: 42
-                    radius: 8
-                    clip: true
-
-                    Image {
-                        id: coverImage
-
-                        anchors.fill: parent
-                        cache: false
-
-                        source: "file:///tmp/cover.png?" + island.coverVersion
-
-                        fillMode: Image.PreserveAspectCrop
-                        smooth: true
-                        mipmap: true
-                    }
-                }
-
-                Item {
-                    width: 90
-                    height: 30
-
-                    Visualizer {
-                        anchors.centerIn: parent
-                    }
-                }
-
-                Rectangle {
-                    width: 1
-                    height: 28
-                    color: "#444444"
-                }
-
-                Column {
-                    width: 180
-                    spacing: 2
-
-                    Text {
-                        text: music.title
-
-                        color: "white"
-                        font.pixelSize: 14
-                        font.bold: true
-
-                        width: parent.width
-                        elide: Text.ElideRight
-                    }
-
-                    Text {
-                        text: music.artist
-
-                        color: "#aaaaaa"
-                        font.pixelSize: 12
-
-                        width: parent.width
-                        elide: Text.ElideRight
-                    }
+            visible: opacity > 0
+            
+            opacity: (island.expanded && island.expandMode === "stats") ? 1.0 : 0.0
+            
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: 200 // Fades in smoothly over 200ms
+                    easing.type: Easing.OutQuad
                 }
             }
+        }
 
-            // ===== NORMAL HOVER =====
-            Row {
-                visible: !island.musicPlaying
-
-                spacing: 14
-
-                Text {
-                    text: Qt.formatDateTime(new Date(), "HH:mm")
-
-                    color: "white"
-                    font.pixelSize: 24
-                    font.bold: true
-                }
-
-                Image {
-                    source: "assets/rikka.png"
-
-                    height: 38
-                    width: height * (sourceSize.width / sourceSize.height)
-
-                    fillMode: Image.PreserveAspectFit
-                    smooth: true
-                    mipmap: true
-                    asynchronous: true
-                }
-
-                Rectangle {
-                    width: 1
-                    height: 26
-                    color: "#444444"
-                }
-
-                Column {
-                    spacing: 0
-
-                    Text {
-                        text: Qt.formatDateTime(new Date(), "ddd")
-                        color: "#dddddd"
-                        font.pixelSize: 14
-                    }
-
-                    Text {
-                        text: Qt.formatDateTime(new Date(), "dd MMM")
-                        color: "#999999"
-                        font.pixelSize: 12
-                    }
-                }
-
-                Rectangle {
-                    width: 1
-                    height: 26
-                    color: "#444444"
-                }
-
-                Column {
-                    spacing: 2
-
-                    Row {
-                        spacing: 4
-
-                        Text {
-                            text: "CPU"
-                            color: "white"
-                            font.bold: true
-                            font.pixelSize: 12
-                        }
-
-                        Text {
-                            text: island.cpu.toFixed(0) + "%"
-                            color: "#bbbbbb"
-                            font.pixelSize: 12
-                        }
-                    }
-
-                    Row {
-                        spacing: 4
-
-                        Text {
-                            text: "RAM"
-                            color: "white"
-                            font.bold: true
-                            font.pixelSize: 12
-                        }
-
-                        Text {
-                            text: island.ram.toFixed(0) + "%"
-                            color: "#bbbbbb"
-                            font.pixelSize: 12
-                        }
-                    }
+        Music {
+            id: musicView
+            anchors.centerIn: parent
+            music: musicDaemon // Pass the daemon
+            
+            visible: opacity > 0
+            opacity: (island.expanded && island.expandMode === "music") ? 1.0 : 0.0
+            
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: 200
+                    easing.type: Easing.OutQuad
                 }
             }
         }
