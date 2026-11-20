@@ -2,7 +2,6 @@
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Hyprland
 import Quickshell.Io
 import QtQuick.Window
 
@@ -25,7 +24,7 @@ PanelWindow {
     // ==========================================
 
     property bool expanded: false
-    readonly property bool revealed: idleBackend.output.revealed
+    property bool revealed: false
 
     property string expandMode: "stats"
 
@@ -33,7 +32,6 @@ PanelWindow {
 
     // Cava data comes from the backend.
     property var cavaValues: visualizerBackend.output.levels
-
 
     // Existing audio detection behaviour is preserved.
     property bool audioDetected:
@@ -47,23 +45,18 @@ PanelWindow {
         id: islandTheme
     }
 
-    Idle {
-        id: idleBackend
-
-        expanded: root.expanded
-    }
-
     // ==========================================
     // WINDOW CONFIGURATION
     // ==========================================
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
     anchors.top: true
 
-    implicitWidth: 460
-    implicitHeight: 160
+    implicitWidth: 800
+    implicitHeight: 350
 
     // ==========================================
     // WINDOW INPUT MASK
@@ -82,7 +75,7 @@ PanelWindow {
             x: (root.implicitWidth - 180) / 2
             y: 0
 
-            width: root.guiStyle === "notch" ? 180 : 0
+            width: root.guiStyle === "notch" ? 450 : 0
             height: root.guiStyle === "notch" ? 6 : 0
         }
     }
@@ -118,7 +111,7 @@ PanelWindow {
     }
 
     // ==========================================
-    // System Stats BACKEND
+    // SYSTEM STATS BACKEND
     // ==========================================
 
     SystemStats {
@@ -126,15 +119,15 @@ PanelWindow {
     }
 
     // ==========================================
-    // Device Controls BACKEND
+    // DEVICE CONTROLS BACKEND
     // ==========================================
 
     DeviceControls {
         id: deviceControlsBackend
 
-        // Temporary: enable polling for testing.
-        // Later this will depend on the selected Controls page.
-        active: true
+        // The GUI activates polling when its Controls
+        // interface is opened.
+        active: false
     }
 
     // ==========================================
@@ -156,24 +149,9 @@ PanelWindow {
         root.expanded = !root.expanded
 
         if (root.expanded)
-            idleBackend.setRevealed(true)
+            root.revealed = true
     }
 
-    onExpandedChanged: {
-        focusGrab.active = root.expanded
-    }
-
-    HyprlandFocusGrab {
-        id: focusGrab
-
-        windows: [root]
-
-        // Clicking outside closes the expanded interface.
-        onCleared: {
-            root.expanded = false
-            idleBackend.setRevealed(false)
-        }
-    }
 
     // ==========================================
     // GUI CONFIGURATION LOADER
@@ -249,6 +227,21 @@ PanelWindow {
         when: guiLoader.item !== null
     }
 
+    // Backend references for the GUI.
+    Binding {
+        target: guiLoader.item
+        property: "systemStats"
+        value: systemStatsBackend
+        when: guiLoader.item !== null
+    }
+
+    Binding {
+        target: guiLoader.item
+        property: "deviceControls"
+        value: deviceControlsBackend
+        when: guiLoader.item !== null
+    }
+
     // ==========================================
     // GUI INTERACTION -> SHARED STATE
     // ==========================================
@@ -261,8 +254,7 @@ PanelWindow {
         }
 
         function onRevealRequested(value) {
-            idleBackend.setRevealed(value)
+            root.revealed = value
         }
     }
-
 }
