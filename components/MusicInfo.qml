@@ -27,6 +27,23 @@ Item {
     }
 
     // ==========================================
+    // PUBLIC MUSIC DATA INTERFACE
+    // ==========================================
+
+    readonly property var output: ({
+        title: root.title,
+        artist: root.artist,
+        artwork: root.coverPath,
+
+        elapsed: root.elapsedTime,
+        duration: root.totalDuration,
+        progress: root.percent,
+
+        playing: root.isPlaying,
+        source: root.activeSource
+    })
+
+    // ==========================================
     // ISOLATED DATA CONTAINERS
     // ==========================================
 

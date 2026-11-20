@@ -1,21 +1,61 @@
+
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Hyprland
-import "./components"
 import Quickshell.Io
 import QtQuick.Window
 
-
+import "./components"
+import "./components/gui"
 
 PanelWindow {
     id: root
 
     color: "transparent"
 
-    property var cavaValues: []
-    property string cavaConfigPath: ""
-    property bool cavaActive: musicDaemon.mpdisPlaying
+    // ==========================================
+    // GUI CONFIGURATION
+    // ==========================================
+
+    property string guiStyle: "notch"
+
+    // ==========================================
+    // SHARED APPLICATION STATE
+    // ==========================================
+
+    property bool expanded: false
+    readonly property bool revealed: idleBackend.output.revealed
+
+    property string expandMode: "stats"
+
+    readonly property string currentTime: clockBackend.output.time
+
+    // Cava data comes from the backend.
+    property var cavaValues: visualizerBackend.output.levels
+
+
+    // Existing audio detection behaviour is preserved.
+    property bool audioDetected:
+        visualizerBackend.output.active
+
+    // ==========================================
+    // SHARED THEME
+    // ==========================================
+
+    Theme {
+        id: islandTheme
+    }
+
+    Idle {
+        id: idleBackend
+
+        expanded: root.expanded
+    }
+
+    // ==========================================
+    // WINDOW CONFIGURATION
+    // ==========================================
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
@@ -25,192 +65,204 @@ PanelWindow {
     implicitWidth: 460
     implicitHeight: 160
 
-    // Dynamic click-through mask
+    // ==========================================
+    // WINDOW INPUT MASK
+    // ==========================================
+
     mask: Region {
-        item: island
-    }
-
-    property bool audioDetected: {
-        for (let i = 0; i < cavaValues.length; i++) {
-            if ((parseInt(cavaValues[i], 10) || 0) > 5)
-                return true
+        // Visible GUI region.
+        Region {
+            item: guiLoader.item
+                  ? guiLoader.item.maskItem
+                  : null
         }
-        return false
+
+        // Invisible hover trigger for Notch.
+        Region {
+            x: (root.implicitWidth - 180) / 2
+            y: 0
+
+            width: root.guiStyle === "notch" ? 180 : 0
+            height: root.guiStyle === "notch" ? 6 : 0
+        }
     }
 
-    // ------------------------------------------
-    // THE MUSIC DAEMON ENGINE (Model & Controller)
-    // ------------------------------------------
+    // ==========================================
+    // SHARED CLOCK ENGINE
+    // ==========================================
+
+    Clock {
+        id: clockBackend
+    }
+
+    // ==========================================
+    // MUSIC BACKEND
+    // ==========================================
+
     MusicInfo {
         id: musicDaemon
+    }
 
-        Component.onCompleted: {
-            const url = Qt.resolvedUrl("cava.conf").toString()
-            root.cavaConfigPath = url.replace("file://", "")
+    Music {
+        id: musicBackend
+
+        engine: musicDaemon
+    }
+
+    // ==========================================
+    // VISUALIZER BACKEND
+    // ==========================================
+
+    Visualizer {
+        id: visualizerBackend
+    }
+
+    // ==========================================
+    // System Stats BACKEND
+    // ==========================================
+
+    SystemStats {
+        id: systemStatsBackend
+    }
+
+    // ==========================================
+    // Device Controls BACKEND
+    // ==========================================
+
+    DeviceControls {
+        id: deviceControlsBackend
+
+        // Temporary: enable polling for testing.
+        // Later this will depend on the selected Controls page.
+        active: true
+    }
+
+    // ==========================================
+    // SHARED EXPANSION CONTROL
+    // ==========================================
+
+    function toggleExpanded(button) {
+        // Right click: Music mode.
+        if (button === Qt.RightButton) {
+            root.expandMode = "music"
         }
 
-        Process {
-            id: cavaProcess
-
-            command: ["cava", "-p", root.cavaConfigPath]
-
-            running: true
-
-            stdout: SplitParser {
-                onRead: data => {
-                    root.cavaValues = data.trim().split(";")
-                }
-            }
-
-            stderr: StdioCollector {
-                onStreamFinished: {
-                    if (text.length > 0)
-                        console.log("[Dynamic Island] Cava Error: " + text.trim())
-                }
-            }
+        // Left click: Stats mode.
+        else if (button === Qt.LeftButton) {
+            root.expandMode = "stats"
         }
+
+        // Preserve the original toggle behaviour.
+        root.expanded = !root.expanded
+
+        if (root.expanded)
+            idleBackend.setRevealed(true)
+    }
+
+    onExpandedChanged: {
+        focusGrab.active = root.expanded
     }
 
     HyprlandFocusGrab {
         id: focusGrab
-        windows: [ root ] // Tell it to watch this PanelWindow!
 
-        // When you click outside, Hyprland automatically clears the grab!
+        windows: [root]
+
+        // Clicking outside closes the expanded interface.
         onCleared: {
-            island.expanded = false;
+            root.expanded = false
+            idleBackend.setRevealed(false)
         }
     }
 
-    Rectangle {
-        id: island
+    // ==========================================
+    // GUI CONFIGURATION LOADER
+    // ==========================================
 
-        anchors.top: parent.top
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.topMargin: 17
+    Loader {
+        id: guiLoader
 
-        property bool expanded: false
-        
-        property bool musicPlaying: root.audioDetected
-        property string expandMode: "stats"
+        anchors.fill: parent
 
-        width: expanded ? 380 : 180
-        height: expanded ? (expandMode === "music" ? 140 : 110) : 40
-        radius: 20
+        source: root.guiStyle === "notch"
+                ? "components/gui/Notch.qml"
+                : "components/gui/Island.qml"
+    }
 
-        clip: true
-        focus: true
+    // ==========================================
+    // SHARED STATE -> SELECTED GUI
+    // ==========================================
 
-        color: expanded ? "#fc000000" : "#a6000000"
-        border.width: 1
-        border.color: "#222222"
+    Binding {
+        target: guiLoader.item
+        property: "expanded"
+        value: root.expanded
+        when: guiLoader.item !== null
+    }
 
-        // Transitions
-        Behavior on width {
-            NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
-        }
-        Behavior on height {
-            NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
-        }
+    Binding {
+        target: guiLoader.item
+        property: "revealed"
+        value: root.revealed
+        when: guiLoader.item !== null
+    }
 
-        onExpandedChanged: {
-            if (expanded) {
-                focusGrab.active = true;
-            } else {
-                focusGrab.active = false;
-            }
-        }
-        
-        // COLLAPSED CLOCK
-        property string currentTime: Qt.formatDateTime(new Date(), "HH:mm")
+    Binding {
+        target: guiLoader.item
+        property: "expandMode"
+        value: root.expandMode
+        when: guiLoader.item !== null
+    }
 
-        Timer {
-            interval: 1000
-            running: true
-            repeat: true
-            onTriggered: {
-                island.currentTime = Qt.formatDateTime(new Date(), "HH:mm")
-            }
-        }
+    Binding {
+        target: guiLoader.item
+        property: "musicPlaying"
+        value: root.audioDetected
+        when: guiLoader.item !== null
+    }
 
-        // MOUSE CLICK ROUTER
-        MouseArea {
-            anchors.fill: parent
-            acceptedButtons: Qt.LeftButton | Qt.RightButton // Handles Left & Right Click!
+    Binding {
+        target: guiLoader.item
+        property: "currentTime"
+        value: root.currentTime
+        when: guiLoader.item !== null
+    }
 
-            onClicked: function(mouse) {
-                // 1. Right Click opens/toggles Music Mode
-                if (mouse.button === Qt.RightButton) {
-                    island.expandMode = "music";
-                    island.expanded = !island.expanded;
-                } 
-                // 2. Left Click opens/toggles Stats Mode
-                else if (mouse.button === Qt.LeftButton) {
-                    island.expandMode = "stats";
-                    island.expanded = !island.expanded;
-                }
-            }
-        }
+    Binding {
+        target: guiLoader.item
+        property: "cavaValues"
+        value: root.cavaValues
+        when: guiLoader.item !== null
+    }
 
-        // ==========================================
-        // COLLAPSED MODES
-        // ==========================================
+    Binding {
+        target: guiLoader.item
+        property: "music"
+        value: musicDaemon
+        when: guiLoader.item !== null
+    }
 
-        // Idle clock
-        Row {
-            id: idleRow
-            visible: !island.expanded && !island.musicPlaying
-            anchors.centerIn: parent
+    Binding {
+        target: guiLoader.item
+        property: "theme"
+        value: islandTheme
+        when: guiLoader.item !== null
+    }
 
-            Text {
-                text: island.currentTime
-                color: "white"
-                font.pixelSize: 15
-                font.bold: true
-            }
+    // ==========================================
+    // GUI INTERACTION -> SHARED STATE
+    // ==========================================
+
+    Connections {
+        target: guiLoader.item
+
+        function onToggleRequested(button) {
+            root.toggleExpanded(button)
         }
 
-        // Collapsed mini visualizer
-        Visualizer {
-            anchors.centerIn: parent
-            values: root.cavaValues
-            visible: !island.expanded && island.musicPlaying
-        }
-
-        // ==========================================
-        // DYNAMIC EXPANDED COMPONENTS
-        // ==========================================
-
-        Expanded {
-            id: expandedView
-            anchors.centerIn: parent
-
-            visible: opacity > 0
-            
-            opacity: (island.expanded && island.expandMode === "stats") ? 1.0 : 0.0
-            
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: 200 // Fades in smoothly over 200ms
-                    easing.type: Easing.OutQuad
-                }
-            }
-        }
-
-        Music {
-            id: musicView
-            anchors.centerIn: parent
-            cavaValues: root.cavaValues
-            music: musicDaemon // Pass the daemon
-            
-            visible: opacity > 0
-            opacity: (island.expanded && island.expandMode === "music") ? 1.0 : 0.0
-            
-            Behavior on opacity {
-                NumberAnimation {
-                    duration: 200
-                    easing.type: Easing.OutQuad
-                }
-            }
+        function onRevealRequested(value) {
+            idleBackend.setRevealed(value)
         }
     }
+
 }

@@ -1,37 +1,54 @@
 
 import QtQuick
+import Quickshell
+import Quickshell.Io
 
-Item {
+QtObject {
     id: root
 
-    property var values: []
+    // Data-only output interface
+    property var output: ({
+        active: false,
+        levels: []
+    })
 
-    implicitWidth: 90
-    implicitHeight: 28
+    readonly property string configPath:
+        Qt.resolvedUrl("../cava.conf").toString().replace("file://", "")
 
-    Row {
-        anchors.centerIn: parent
-        height: parent.height
-        spacing: 2
+    function publishLevels(line) {
+        const cleanLine = line.trim();
 
-        Repeater {
-            model: Math.min(root.values.length, 20)
+        if (cleanLine.length === 0)
+            return;
 
-            Rectangle {
-                required property int index
+        const levels = cleanLine.split(";").map(value => {
+            const parsed = parseInt(value, 10);
+            return Number.isFinite(parsed) ? parsed : 0;
+        });
 
-                width: 3
+        root.output = {
+            active: levels.some(value => value > 5),
+            levels: levels
+        };
+    }
 
-                height: {
-                    const v = parseInt(root.values[index]) || 0
-                    return Math.max(2, v / 3)
+    property var process: Process {
+        id: cavaProcess
+
+        command: ["cava", "-p", root.configPath]
+        running: root.configPath.length > 0
+
+        stdout: SplitParser {
+            onRead: data => root.publishLevels(data)
+        }
+
+        stderr: StdioCollector {
+            onStreamFinished: {
+                if (text.trim().length > 0) {
+                    console.log(
+                        "[Visualizer Backend] " + text.trim()
+                    );
                 }
-
-                radius: width / 2
-                color: "white"
-
-                anchors.verticalCenter: parent.verticalCenter
-                transformOrigin: Item.Center
             }
         }
     }
