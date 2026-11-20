@@ -6,27 +6,12 @@ Item {
     id: root
 
     implicitWidth: 380
-    implicitHeight: 110 // 🔥 Scaled down to match Expanded.qml's exact height!
+    implicitHeight: 110 // Scaled down to match Expanded.qml's exact height!
 
     property var cavaValues: []
     property var music
 
-    // Wide bouncing visualizer processor
-    property string cavaConfigPath: ""
-    Component.onCompleted: {
-        let url = Qt.resolvedUrl("../cava.conf").toString();
-        root.cavaConfigPath = url.replace("file://", "");
-        cava.running = true;
-    }
 
-    Process {
-        id: cava
-        running: false
-        command: ["cava", "-p", root.cavaConfigPath]
-        stdout: SplitParser {
-            onRead: data => { root.cavaValues = data.trim().split(";") }
-        }
-    }
 
     Column {
         anchors.fill: parent

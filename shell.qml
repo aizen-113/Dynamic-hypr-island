@@ -13,13 +13,14 @@ PanelWindow {
 
     color: "transparent"
 
+    property var cavaValues: []
+    property string cavaConfigPath: ""
+    property bool cavaActive: musicDaemon.mpdisPlaying
+
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
 
     anchors.top: true
-
-    WlrLayershell.keyboardFocus: island.expanded ? KeyboardFocus.OnDemand : KeyboardFocus.None
-    
 
     implicitWidth: 460
     implicitHeight: 160
@@ -29,11 +30,45 @@ PanelWindow {
         item: island
     }
 
+    property bool audioDetected: {
+        for (let i = 0; i < cavaValues.length; i++) {
+            if ((parseInt(cavaValues[i], 10) || 0) > 5)
+                return true
+        }
+        return false
+    }
+
     // ------------------------------------------
     // THE MUSIC DAEMON ENGINE (Model & Controller)
     // ------------------------------------------
     MusicInfo {
         id: musicDaemon
+
+        Component.onCompleted: {
+            const url = Qt.resolvedUrl("cava.conf").toString()
+            root.cavaConfigPath = url.replace("file://", "")
+        }
+
+        Process {
+            id: cavaProcess
+
+            command: ["cava", "-p", root.cavaConfigPath]
+
+            running: true
+
+            stdout: SplitParser {
+                onRead: data => {
+                    root.cavaValues = data.trim().split(";")
+                }
+            }
+
+            stderr: StdioCollector {
+                onStreamFinished: {
+                    if (text.length > 0)
+                        console.log("[Dynamic Island] Cava Error: " + text.trim())
+                }
+            }
+        }
     }
 
     HyprlandFocusGrab {
@@ -55,7 +90,7 @@ PanelWindow {
 
         property bool expanded: false
         
-        property bool musicPlaying: musicDaemon.mpdIsPlaying
+        property bool musicPlaying: root.audioDetected
         property string expandMode: "stats"
 
         width: expanded ? 380 : 180
@@ -137,6 +172,7 @@ PanelWindow {
         // Collapsed mini visualizer
         Visualizer {
             anchors.centerIn: parent
+            values: root.cavaValues
             visible: !island.expanded && island.musicPlaying
         }
 
@@ -163,6 +199,7 @@ PanelWindow {
         Music {
             id: musicView
             anchors.centerIn: parent
+            cavaValues: root.cavaValues
             music: musicDaemon // Pass the daemon
             
             visible: opacity > 0
